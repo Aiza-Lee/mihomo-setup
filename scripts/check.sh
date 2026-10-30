@@ -40,12 +40,14 @@ pass "系统架构: $(uname -s) (${ARCH})"
 echo "1. 核心二进制文件:"
 if [ -x "${WORKSPACE_DIR}/bin/mihomo" ]; then
     if VERSION_STR=$("${WORKSPACE_DIR}/bin/mihomo" -v 2>/dev/null | head -n 1); then
-        pass "Mihomo 核心可用: ${VERSION_STR}"
+        pass "Mihomo 核心已装配且可用: ${VERSION_STR}"
     else
-        fail "Mihomo 二进制与当前系统架构 (${ARCH}) 不兼容或无法执行！请运行 ./deploy.sh 重新下载对应核心"
+        fail "Mihomo 二进制与当前系统架构 (${ARCH}) 不兼容或无法执行！请运行 ./deploy.sh 重新装配"
     fi
+elif [ -d "${WORKSPACE_DIR}/bin/arch" ]; then
+    pass "检测到本地多架构核心库完整 (待运行 ./deploy.sh 自动装配到 bin/mihomo)"
 else
-    fail "找不到可执行的 Mihomo 核心: ${WORKSPACE_DIR}/bin/mihomo"
+    fail "缺少 Mihomo 核心或架构库: ${WORKSPACE_DIR}/bin"
 fi
 
 # 2. 检查规则与数据库文件

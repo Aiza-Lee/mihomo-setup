@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Mihomo 一键极速部署脚本 (适用于任何无头 Linux 电脑)
+# Mihomo 一键极速部署脚本 (全离线、多架构自适应、版本统一)
 # 用法:
 #   ./deploy.sh                                   # 使用默认配置部署
 #   ./deploy.sh "https://your-subscription-url"   # 自动导入订阅并部署
@@ -11,6 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="${SCRIPT_DIR}"
 BIN_DIR="${WORKSPACE_DIR}/bin"
+ARCH_DIR="${BIN_DIR}/arch"
 CONFIG_DIR="${WORKSPACE_DIR}/config"
 CONFIG_FILE="${CONFIG_DIR}/config.yaml"
 CONFIG_EXAMPLE="${CONFIG_DIR}/config.example.yaml"
@@ -21,94 +22,78 @@ TARGET_PORT="${2:-}"
 MIHOMO_VERSION="v1.19.33"
 
 echo "======================================================================"
-echo "          Mihomo 极速自动化部署 (Headless Linux Deployer)"
+echo "          Mihomo 极速自动化部署 (全离线多架构版本)"
 echo "======================================================================"
 echo "部署目录: ${WORKSPACE_DIR}"
 echo "当前用户: ${USER} (UID: $(id -u))"
+echo "预设内核: Mihomo Meta ${MIHOMO_VERSION}"
 
-# 1. 检查操作系统与 CPU 架构
+# 1. 检查操作系统
 OS="$(uname -s)"
 if [ "${OS}" != "Linux" ]; then
     echo "错误: 本项目仅支持 Linux 系统，当前为: ${OS}" >&2
     exit 1
 fi
 
+# 2. 识别 CPU 架构并从本地核心库装配
 ARCH="$(uname -m)"
-echo "[OK] 系统架构检测: Linux ${ARCH}"
-
-# 2. 检查或安装 Mihomo 二进制核心
-mkdir -p "${BIN_DIR}"
-NEED_DOWNLOAD_BIN=false
-
-if [ -f "${BIN_DIR}/mihomo" ]; then
-    chmod +x "${BIN_DIR}/mihomo" 2>/dev/null || true
-    if "${BIN_DIR}/mihomo" -v >/dev/null 2>&1; then
-        echo "[OK] 检测到当前二进制核心兼容且可用: $("${BIN_DIR}/mihomo" -v | head -n 1)"
-    else
-        echo "[WARN] 检测到本地二进制核心与当前 CPU 架构 (${ARCH}) 不兼容，准备重新下载..."
-        NEED_DOWNLOAD_BIN=true
-    fi
-else
-    echo "[INFO] 未检测到核心二进制，准备下载..."
-    NEED_DOWNLOAD_BIN=true
-fi
-
-if [ "${NEED_DOWNLOAD_BIN}" = true ]; then
-    case "${ARCH}" in
-        x86_64|amd64)
-            PKG_ARCH="linux-amd64-compatible"
-            ;;
-        aarch64|arm64)
-            PKG_ARCH="linux-arm64"
-            ;;
-        armv7l|armhf)
-            PKG_ARCH="linux-armv7"
-            ;;
-        *)
-            echo "错误: 暂不支持的架构: ${ARCH}，请手动放置编译好的 mihomo 核心到 ${BIN_DIR}/mihomo" >&2
-            exit 1
-            ;;
-    esac
-
-    DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/mihomo-${PKG_ARCH}-${MIHOMO_VERSION}.gz"
-    ACCEL_URL="https://ghproxy.net/${DOWNLOAD_URL}"
-    TMP_GZ="/tmp/mihomo-${PKG_ARCH}.gz"
-
-    echo "正在下载 Mihomo 核心 (${PKG_ARCH})..."
-    DOWNLOAD_SUCCESS=false
-    for URL in "${ACCEL_URL}" "${DOWNLOAD_URL}"; do
-        echo "尝试下载: ${URL}"
-        if curl -fSL --connect-timeout 15 --retry 2 -o "${TMP_GZ}" "${URL}" 2>/dev/null; then
-            DOWNLOAD_SUCCESS=true
-            break
-        fi
-    done
-
-    if [ "${DOWNLOAD_SUCCESS}" != true ]; then
-        echo "错误: 核心下载失败，请检查网络或手动下载对应核心并解压至 ${BIN_DIR}/mihomo" >&2
+case "${ARCH}" in
+    x86_64|amd64)
+        ARCH_TAG="amd64"
+        ;;
+    aarch64|arm64)
+        ARCH_TAG="arm64"
+        ;;
+    armv7l|armhf|arm)
+        ARCH_TAG="armv7"
+        ;;
+    *)
+        echo "错误: 暂不支持的架构: ${ARCH}。当前支持: amd64 (x86_64), arm64 (aarch64), armv7 (armv7l)" >&2
         exit 1
-    fi
+        ;;
+esac
 
-    gzip -dc "${TMP_GZ}" > "${BIN_DIR}/mihomo"
-    chmod +x "${BIN_DIR}/mihomo"
-    rm -f "${TMP_GZ}"
-    echo "[OK] Mihomo 核心下载并解压成功: $("${BIN_DIR}/mihomo" -v | head -n 1)"
+echo "[OK] 系统架构检测: Linux ${ARCH} (匹配架构包: ${ARCH_TAG})"
+
+ARCH_GZ="${ARCH_DIR}/mihomo-linux-${ARCH_TAG}.gz"
+if [ ! -f "${ARCH_GZ}" ]; then
+    echo "错误: 缺少本地内置架构核心包: ${ARCH_GZ}" >&2
+    exit 1
 fi
 
-# 3. 检查规则数据库文件完整性
+# 检查是否需要重新解压装配核心
+NEED_EXTRACT=true
+if [ -f "${BIN_DIR}/mihomo" ] && [ -x "${BIN_DIR}/mihomo" ]; then
+    if "${BIN_DIR}/mihomo" -v >/dev/null 2>&1; then
+        CURRENT_BIN_ARCH=$(file -b "${BIN_DIR}/mihomo" || true)
+        if { [ "${ARCH_TAG}" = "amd64" ] && [[ "${CURRENT_BIN_ARCH}" =~ x86-64 ]]; } || \
+           { [ "${ARCH_TAG}" = "arm64" ] && [[ "${CURRENT_BIN_ARCH}" =~ aarch64 ]]; } || \
+           { [ "${ARCH_TAG}" = "armv7" ] && [[ "${CURRENT_BIN_ARCH}" =~ ARM ]]; }; then
+            echo "[OK] 本地 Mihomo 核心可用且与架构 (${ARCH}) 完全匹配: $("${BIN_DIR}/mihomo" -v | head -n 1)"
+            NEED_EXTRACT=false
+        fi
+    fi
+fi
+
+if [ "${NEED_EXTRACT}" = true ]; then
+    echo "正在从本地架构包离线装配核心 (${ARCH_TAG})..."
+    gzip -dc "${ARCH_GZ}" > "${BIN_DIR}/mihomo"
+    chmod +x "${BIN_DIR}/mihomo"
+    echo "[OK] 核心装配完成: $("${BIN_DIR}/mihomo" -v | head -n 1)"
+fi
+
+# 3. 检查离线规则数据库文件完整性
 mkdir -p "${CONFIG_DIR}/providers"
 touch "${CONFIG_DIR}/providers/.gitkeep"
 
 for DB_FILE in "Country.mmdb" "geoip.dat" "geosite.dat"; do
     TARGET_DB="${CONFIG_DIR}/${DB_FILE}"
     if [ ! -s "${TARGET_DB}" ]; then
-        echo "[INFO] 正在补全数据库文件: ${DB_FILE}..."
-        DB_URL="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/${DB_FILE}"
-        ACCEL_DB="https://ghproxy.net/${DB_URL}"
-        curl -fSL --connect-timeout 15 --retry 2 -o "${TARGET_DB}" "${ACCEL_DB}" 2>/dev/null || \
-        curl -fSL --connect-timeout 15 --retry 2 -o "${TARGET_DB}" "${DB_URL}" 2>/dev/null || true
+        echo "错误: 缺少本地离线数据库文件: ${TARGET_DB}" >&2
+        exit 1
     fi
 done
+echo "[OK] GeoIP 与 Geosite 离线规则数据库完整"
 
 # 4. 初始化配置文件
 if [ ! -f "${CONFIG_FILE}" ]; then

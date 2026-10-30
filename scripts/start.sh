@@ -6,9 +6,30 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BIN_FILE="${WORKSPACE_DIR}/bin/mihomo"
+ARCH_DIR="${WORKSPACE_DIR}/bin/arch"
 CONFIG_FILE="${WORKSPACE_DIR}/config/config.yaml"
 CONFIG_EXAMPLE="${WORKSPACE_DIR}/config/config.example.yaml"
 USER_SERVICE_FILE="${HOME}/.config/systemd/user/mihomo.service"
+
+# 0. 确保核心二进制存在
+if [ ! -x "${BIN_FILE}" ]; then
+    ARCH="$(uname -m)"
+    case "${ARCH}" in
+        x86_64|amd64)   ARCH_TAG="amd64" ;;
+        aarch64|arm64)  ARCH_TAG="arm64" ;;
+        armv7l|armhf)   ARCH_TAG="armv7" ;;
+        *) ARCH_TAG="" ;;
+    esac
+    if [ -n "${ARCH_TAG}" ] && [ -f "${ARCH_DIR}/mihomo-linux-${ARCH_TAG}.gz" ]; then
+        echo "[INFO] 正在从本地核心库装配 ${ARCH_TAG} 核心..."
+        gzip -dc "${ARCH_DIR}/mihomo-linux-${ARCH_TAG}.gz" > "${BIN_FILE}"
+        chmod +x "${BIN_FILE}"
+    else
+        echo "错误: 缺少可执行的核心二进制 ${BIN_FILE}" >&2
+        exit 1
+    fi
+fi
 
 # 1. 确保配置文件存在
 if [ ! -f "${CONFIG_FILE}" ]; then
@@ -29,7 +50,7 @@ fi
 
 # 3. 验证配置文件语法
 echo "正在检查配置文件语法..."
-if ! "${WORKSPACE_DIR}/bin/mihomo" -t -d "${WORKSPACE_DIR}/config" -f "${CONFIG_FILE}" >/dev/null; then
+if ! "${BIN_FILE}" -t -d "${WORKSPACE_DIR}/config" -f "${CONFIG_FILE}" >/dev/null; then
     echo "错误: 配置文件语法有误，请先修复 ${CONFIG_FILE}" >&2
     exit 1
 fi
@@ -39,7 +60,7 @@ echo "[OK] 配置文件语法校验通过"
 CONFIG_PORT=$(grep -E '^[[:space:]]*mixed-port:' "${CONFIG_FILE}" | awk '{print $2}' || echo "7890")
 if ss -tlpn 2>/dev/null | grep -q ":${CONFIG_PORT} "; then
     # 检查占用进程是否就是当前工作区已有的 mihomo
-    CURRENT_RUNNING=$(pgrep -f "${WORKSPACE_DIR}/bin/mihomo" || true)
+    CURRENT_RUNNING=$(pgrep -f "${BIN_FILE}" || true)
     if [ -z "${CURRENT_RUNNING}" ]; then
         echo "======================================================================"
         echo "[提示] 检测到代理端口 ${CONFIG_PORT} 当前正被占用"

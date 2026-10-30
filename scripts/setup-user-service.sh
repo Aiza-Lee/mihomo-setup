@@ -12,6 +12,8 @@ USER_SYSTEMD_DIR="${HOME}/.config/systemd/user"
 SERVICE_DEST="${USER_SYSTEMD_DIR}/mihomo.service"
 CONFIG_FILE="${WORKSPACE_DIR}/config/config.yaml"
 CONFIG_EXAMPLE="${WORKSPACE_DIR}/config/config.example.yaml"
+BIN_FILE="${WORKSPACE_DIR}/bin/mihomo"
+ARCH_DIR="${WORKSPACE_DIR}/bin/arch"
 
 echo "=== 正在配置 Mihomo 用户级 systemd 服务 ==="
 echo "工作目录: ${WORKSPACE_DIR}"
@@ -31,14 +33,27 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     fi
 fi
 
-# 验证核心文件存在与语法
-if [ ! -x "${WORKSPACE_DIR}/bin/mihomo" ]; then
-    echo "错误: 缺少可执行的核心二进制 ${WORKSPACE_DIR}/bin/mihomo" >&2
-    exit 1
+# 确保核心二进制存在 (若未解压则从本地内置架构包解压)
+if [ ! -x "${BIN_FILE}" ]; then
+    ARCH="$(uname -m)"
+    case "${ARCH}" in
+        x86_64|amd64)   ARCH_TAG="amd64" ;;
+        aarch64|arm64)  ARCH_TAG="arm64" ;;
+        armv7l|armhf)   ARCH_TAG="armv7" ;;
+        *) ARCH_TAG="" ;;
+    esac
+    if [ -n "${ARCH_TAG}" ] && [ -f "${ARCH_DIR}/mihomo-linux-${ARCH_TAG}.gz" ]; then
+        echo "[INFO] 正在从本地核心库装配 ${ARCH_TAG} 核心..."
+        gzip -dc "${ARCH_DIR}/mihomo-linux-${ARCH_TAG}.gz" > "${BIN_FILE}"
+        chmod +x "${BIN_FILE}"
+    else
+        echo "错误: 缺少可执行的核心二进制 ${BIN_FILE}" >&2
+        exit 1
+    fi
 fi
 
 echo "正在校验配置有效性..."
-"${WORKSPACE_DIR}/bin/mihomo" -t -d "${WORKSPACE_DIR}/config" -f "${CONFIG_FILE}" >/dev/null
+"${BIN_FILE}" -t -d "${WORKSPACE_DIR}/config" -f "${CONFIG_FILE}" >/dev/null
 echo "[OK] 配置校验通过"
 
 # 动态替换模板生成用户级服务文件

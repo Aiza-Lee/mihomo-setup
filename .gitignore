@@ -18,6 +18,5 @@ config/providers/*
 /tmp/
 .DS_Store
 
-# 如果你希望仓库保持几百KB的极轻量化（由 deploy.sh 在部署时自动按架构下载二进制），
-# 可以取消注释下一行：
-# bin/mihomo
+# 本机装配解压后的单一核心二进制 (统一由 bin/arch/ 下的多架构版本库纳管)
+bin/mihomo

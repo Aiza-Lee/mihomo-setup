@@ -26,8 +26,10 @@ cd ~/mihomo-setup
 
 ## ✨ 核心特性
 
-- **跨架构自动适配**:
-  部署脚本自动识别 `x86_64` (AMD64)、`aarch64` (ARM64) 等 CPU 架构，自动匹配最合适的核心版本。
+- **全离线多架构自包含 (零网络依赖)**:
+  内置 `x86_64` (AMD64)、`aarch64` (ARM64)、`armv7l` (ARMv7) 三大主流架构官方静态编译核心（统一版本 `v1.19.33`）。克隆即具备全套文件，彻底消除新电脑未配置代理时无法从 GitHub 下载核心的“鸡生蛋”悖论。
+- **智能架构匹配装配**:
+  部署脚本自动识别宿主机 CPU 架构，0.1 秒内从本地多架构核心库完成精确装配。
 - **免 root 零特权运行**:
   默认采用 `systemctl --user` 用户级 systemd 架构，完全无需 root / sudo 权限即可注册开机自启。
 - **无头常驻保障 (User Linger)**:
@@ -48,7 +50,11 @@ mihomo-setup/
 ├── deploy.sh                    # ⭐ 一键极速部署总入口 (自动装配/架构探测/初始化)
 ├── env.sh                       # 终端代理环境变量配置 (source env.sh)
 ├── bin/
-│   └── mihomo                   # Mihomo (Clash Meta) 二进制核心
+│   ├── arch/                    # 📦 本地内置多架构官方核心库 (amd64, arm64, armv7)
+│   │   ├── mihomo-linux-amd64.gz
+│   │   ├── mihomo-linux-arm64.gz
+│   │   └── mihomo-linux-armv7.gz
+│   └── mihomo                   # 本机装配的核心二进制 (deploy.sh 自动装配，不入Git)
 ├── config/
 │   ├── config.example.yaml      # 带详细中文注释的标准参考配置模版
 │   ├── config.yaml              # 运行主配置 (deploy/update-sub 自动生成，不入Git)
