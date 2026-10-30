@@ -8,6 +8,14 @@
 # ==============================================================================
 set -euo pipefail
 
+# 自动补全无头/SSH 环境下的用户级 systemd bus 环境变量
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR}/bus" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="${SCRIPT_DIR}"
 BIN_DIR="${WORKSPACE_DIR}/bin"
@@ -61,15 +69,14 @@ if [ ! -f "${ARCH_GZ}" ]; then
     exit 1
 fi
 
-# 检查是否需要重新解压装配核心
+# 检查是否需要重新解压装配核心 (使用内建版本信息，不依赖外部 file 命令)
 NEED_EXTRACT=true
 if [ -f "${BIN_DIR}/mihomo" ] && [ -x "${BIN_DIR}/mihomo" ]; then
-    if "${BIN_DIR}/mihomo" -v >/dev/null 2>&1; then
-        CURRENT_BIN_ARCH=$(file -b "${BIN_DIR}/mihomo" || true)
-        if { [ "${ARCH_TAG}" = "amd64" ] && [[ "${CURRENT_BIN_ARCH}" =~ x86-64 ]]; } || \
-           { [ "${ARCH_TAG}" = "arm64" ] && [[ "${CURRENT_BIN_ARCH}" =~ aarch64 ]]; } || \
-           { [ "${ARCH_TAG}" = "armv7" ] && [[ "${CURRENT_BIN_ARCH}" =~ ARM ]]; }; then
-            echo "[OK] 本地 Mihomo 核心可用且与架构 (${ARCH}) 完全匹配: $("${BIN_DIR}/mihomo" -v | head -n 1)"
+    if CURRENT_BIN_INFO=$("${BIN_DIR}/mihomo" -v 2>/dev/null | head -n 1); then
+        if { [ "${ARCH_TAG}" = "amd64" ] && [[ "${CURRENT_BIN_INFO}" =~ amd64 ]]; } || \
+           { [ "${ARCH_TAG}" = "arm64" ] && [[ "${CURRENT_BIN_INFO}" =~ arm64 ]]; } || \
+           { [ "${ARCH_TAG}" = "armv7" ] && [[ "${CURRENT_BIN_INFO}" =~ arm ]]; }; then
+            echo "[OK] 本地 Mihomo 核心可用且与架构 (${ARCH}) 完全匹配: ${CURRENT_BIN_INFO}"
             NEED_EXTRACT=false
         fi
     fi
@@ -79,7 +86,7 @@ if [ "${NEED_EXTRACT}" = true ]; then
     echo "正在从本地架构包离线装配核心 (${ARCH_TAG})..."
     gzip -dc "${ARCH_GZ}" > "${BIN_DIR}/mihomo"
     chmod +x "${BIN_DIR}/mihomo"
-    echo "[OK] 核心装配完成: $("${BIN_DIR}/mihomo" -v | head -n 1)"
+    echo "[OK] 核心装配完成: $("${BIN_DIR}/mihomo" -v 2>/dev/null | head -n 1)"
 fi
 
 # 3. 检查离线规则数据库文件完整性
@@ -129,7 +136,8 @@ echo "常用操作提示:"
 echo "  1. 当前终端开启代理: source ${WORKSPACE_DIR}/env.sh"
 echo "  2. 当前终端关闭代理: source ${WORKSPACE_DIR}/env.sh off"
 echo "  3. 导入/更新订阅链接: ${WORKSPACE_DIR}/scripts/update-sub.sh \"<订阅URL>\""
-echo "  4. 查看运行状态:     ${WORKSPACE_DIR}/scripts/status.sh"
-echo "  5. 实时查看运行日志: ${WORKSPACE_DIR}/scripts/logs.sh"
-echo "  6. 全面健康体检:     ${WORKSPACE_DIR}/scripts/check.sh"
+echo "  4. 切换分流模式:     ${WORKSPACE_DIR}/scripts/mode.sh [rule/global/direct]"
+echo "  5. 查看运行状态:     ${WORKSPACE_DIR}/scripts/status.sh"
+echo "  6. 实时查看运行日志: ${WORKSPACE_DIR}/scripts/logs.sh"
+echo "  7. 全面健康体检:     ${WORKSPACE_DIR}/scripts/check.sh"
 echo "======================================================================"

@@ -5,6 +5,14 @@
 # ==============================================================================
 set -euo pipefail
 
+# 自动补全无头/SSH 环境下的用户级 systemd bus 环境变量
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR}/bus" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${WORKSPACE_DIR}/config/config.yaml"
@@ -53,10 +61,10 @@ TEMP_SUB="/tmp/mihomo_sub_download_${RANDOM}.yaml"
 echo "正在下载最新订阅配置..."
 DOWNLOAD_SUCCESS=false
 
-# 尝试带 User-Agent: clash.meta 下载
-if curl -fsSL -A "clash.meta" --connect-timeout 15 -o "${TEMP_SUB}" "${SUB_URL}"; then
+# 尝试带 User-Agent: clash.meta 下载 (若因代理环境变量导致超时，自动回退直连)
+if curl -fsSL -A "clash.meta" --connect-timeout 15 -o "${TEMP_SUB}" "${SUB_URL}" 2>/dev/null; then
     DOWNLOAD_SUCCESS=true
-elif curl --noproxy '*' -fsSL -A "clash.meta" --connect-timeout 15 -o "${TEMP_SUB}" "${SUB_URL}"; then
+elif curl --noproxy '*' -fsSL -A "clash.meta" --connect-timeout 15 -o "${TEMP_SUB}" "${SUB_URL}" 2>/dev/null; then
     DOWNLOAD_SUCCESS=true
 fi
 
