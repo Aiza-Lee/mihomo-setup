@@ -76,7 +76,8 @@ mihomo-setup/
 │   ├── logs.sh                  # 实时查看运行日志 (journalctl)
 │   ├── check.sh                 # 架构/核心/数据库/端口/网络连通性健康诊断
 │   ├── update-sub.sh            # 一键导入/更新机场订阅链接
-│   └── switch-port.sh           # 快速切换监听端口 (例如 7890 与 7893)
+│   ├── switch-port.sh           # 快速切换监听端口 (例如 7890 与 7893)
+│   └── mode.sh                  # 切换代理模式 (rule / global / direct)
 ├── privileged/                  # 需要 root 权限的高级操作 (备用)
 │   ├── enable-tun-capability.sh # 为二进制赋予 TUN 虚拟网卡能力
 │   ├── setup-root-service.sh    # 安装系统级全局服务
@@ -102,6 +103,7 @@ mihomo-setup/
 | **查看日志** | `./scripts/logs.sh` | 实时查看运行日志 (`Ctrl+C` 退出) |
 | **更新订阅** | `./scripts/update-sub.sh <订阅URL>` | 一键拉取最新节点并合并规则 |
 | **切换端口** | `./scripts/switch-port.sh <port>` | 动态切换代理监听端口 (如 7890 / 7893) |
+| **切换模式** | `./scripts/mode.sh [rule/global/direct]` | 热切换分流模式 (规则/全局/直连，无需重启) |
 
 ---
 
