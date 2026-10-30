@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# 启动 Mihomo 服务
+# 启动 Mihomo 服务 (支持 systemd 与非 systemd 双引擎自适应)
 # ==============================================================================
 set -euo pipefail
 
@@ -19,6 +19,14 @@ ARCH_DIR="${WORKSPACE_DIR}/bin/arch"
 CONFIG_FILE="${WORKSPACE_DIR}/config/config.yaml"
 CONFIG_EXAMPLE="${WORKSPACE_DIR}/config/config.example.yaml"
 USER_SERVICE_FILE="${HOME}/.config/systemd/user/mihomo.service"
+PID_FILE="${WORKSPACE_DIR}/bin/mihomo.pid"
+LOG_DIR="${WORKSPACE_DIR}/logs"
+LOG_FILE="${LOG_DIR}/mihomo.log"
+
+# 检测系统是否以 systemd 为 PID 1
+has_systemd() {
+    [ -d /run/systemd/system ] && [ "$(ps -p 1 -o comm= 2>/dev/null)" = "systemd" ]
+}
 
 # 0. 确保核心二进制存在
 if [ ! -x "${BIN_FILE}" ]; then
@@ -50,13 +58,7 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     fi
 fi
 
-# 2. 确保用户服务已注册
-if [ ! -f "${USER_SERVICE_FILE}" ]; then
-    echo "首次运行，正在自动安装用户服务..."
-    "${SCRIPT_DIR}/setup-user-service.sh"
-fi
-
-# 3. 验证配置文件语法
+# 2. 验证配置文件语法
 echo "正在检查配置文件语法..."
 if ! "${BIN_FILE}" -t -d "${WORKSPACE_DIR}/config" -f "${CONFIG_FILE}" >/dev/null; then
     echo "错误: 配置文件语法有误，请先修复 ${CONFIG_FILE}" >&2
@@ -64,7 +66,7 @@ if ! "${BIN_FILE}" -t -d "${WORKSPACE_DIR}/config" -f "${CONFIG_FILE}" >/dev/nul
 fi
 echo "[OK] 配置文件语法校验通过"
 
-# 4. 检查端口占用
+# 3. 检查端口占用
 CONFIG_PORT=$(grep -E '^[[:space:]]*mixed-port:' "${CONFIG_FILE}" | awk '{print $2}' || echo "7890")
 if ss -tlpn 2>/dev/null | grep -q ":${CONFIG_PORT} "; then
     # 检查占用进程是否就是当前工作区已有的 mihomo
@@ -91,17 +93,50 @@ if ss -tlpn 2>/dev/null | grep -q ":${CONFIG_PORT} "; then
     fi
 fi
 
-# 5. 启动用户级 systemd 服务
-echo "正在通过 systemctl --user 启动服务..."
-systemctl --user start mihomo.service
+# 4. 启动服务 (systemd / 独立进程自适应)
+if has_systemd; then
+    # 确保用户服务已注册
+    if [ ! -f "${USER_SERVICE_FILE}" ]; then
+        echo "首次运行，正在自动安装用户服务..."
+        "${SCRIPT_DIR}/setup-user-service.sh"
+    fi
 
-# 6. 检查启动结果
-sleep 1
-if systemctl --user is-active --quiet mihomo.service; then
-    echo "[OK] Mihomo 服务启动成功！"
-    "${SCRIPT_DIR}/status.sh"
+    echo "正在通过 systemctl --user 启动服务..."
+    systemctl --user start mihomo.service
+
+    sleep 1
+    if systemctl --user is-active --quiet mihomo.service; then
+        echo "[OK] Mihomo 服务 (systemd) 启动成功！"
+        "${SCRIPT_DIR}/status.sh"
+    else
+        echo "[FAIL] 服务启动失败，请检查日志:"
+        journalctl --user -u mihomo.service -n 20 --no-pager
+        exit 1
+    fi
 else
-    echo "[FAIL] 服务启动失败，请检查日志:"
-    journalctl --user -u mihomo.service -n 20 --no-pager
-    exit 1
+    echo "检测到系统未运行 systemd (如 WSL / Docker / 容器环境)，已启用独立后台守护进程模式..."
+    mkdir -p "${LOG_DIR}"
+
+    # 检查是否已在运行
+    ALREADY_RUNNING=$(pgrep -f "${BIN_FILE}" || true)
+    if [ -n "${ALREADY_RUNNING}" ]; then
+        echo "[OK] Mihomo 进程已经在后台运行中 (PID: ${ALREADY_RUNNING})"
+        "${SCRIPT_DIR}/status.sh"
+        exit 0
+    fi
+
+    nohup "${BIN_FILE}" -d "${WORKSPACE_DIR}/config" -f "${CONFIG_FILE}" > "${LOG_FILE}" 2>&1 &
+    NEW_PID=$!
+    echo "${NEW_PID}" > "${PID_FILE}"
+    sleep 1
+
+    if kill -0 "${NEW_PID}" 2>/dev/null; then
+        echo "[OK] Mihomo 独立后台守护进程启动成功！(PID: ${NEW_PID})"
+        echo "日志路径: ${LOG_FILE}"
+        "${SCRIPT_DIR}/status.sh"
+    else
+        echo "[FAIL] 启动失败，请检查运行日志: ${LOG_FILE}"
+        tail -n 20 "${LOG_FILE}" 2>/dev/null || true
+        exit 1
+    fi
 fi

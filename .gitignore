@@ -12,7 +12,9 @@ config/cache.db
 config/providers/*
 !config/providers/.gitkeep
 
-# 临时文件与日志
+# 独立进程运行时日志与 PID
+bin/mihomo.pid
+logs/
 *.log
 *.tmp
 /tmp/

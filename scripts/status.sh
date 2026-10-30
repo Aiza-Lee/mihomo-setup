@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# 查看 Mihomo 运行状态与端口监听
+# 查看 Mihomo 运行状态与端口监听 (支持 systemd 与非 systemd 双引擎自适应)
 # ==============================================================================
 set -euo pipefail
 
@@ -15,29 +15,44 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${WORKSPACE_DIR}/config/config.yaml"
+BIN_FILE="${WORKSPACE_DIR}/bin/mihomo"
+
+has_systemd() {
+    [ -d /run/systemd/system ] && [ "$(ps -p 1 -o comm= 2>/dev/null)" = "systemd" ]
+}
 
 echo "======================================================================"
 echo "                   Mihomo 服务运行状态"
 echo "======================================================================"
 
-# 1. 检查 systemd 服务状态
-if systemctl --user is-active --quiet mihomo.service 2>/dev/null; then
-    echo "● 服务状态:    [ 运行中 (Active) ]"
+# 1. 检查守护方式与服务状态
+if has_systemd; then
+    echo "● 守护引擎:    [ 用户级 systemd (systemctl --user) ]"
+    if systemctl --user is-active --quiet mihomo.service 2>/dev/null; then
+        echo "● 服务状态:    [ 运行中 (Active) ]"
+    else
+        echo "○ 服务状态:    [ 未运行 (Inactive) ]"
+    fi
+
+    if systemctl --user is-enabled --quiet mihomo.service 2>/dev/null; then
+        echo "● 开机自启:    [ 已启用 (Enabled) ]"
+    else
+        echo "○ 开机自启:    [ 未启用 (Disabled) ]"
+    fi
 else
-    echo "○ 服务状态:    [ 未运行 (Inactive) ]"
+    echo "● 守护引擎:    [ 独立后台进程 (Non-systemd / Standalone) ]"
+    PID_CHECK=$(pgrep -f "${BIN_FILE}" || true)
+    if [ -n "${PID_CHECK}" ]; then
+        echo "● 服务状态:    [ 运行中 (Active - PID: ${PID_CHECK}) ]"
+    else
+        echo "○ 服务状态:    [ 未运行 (Inactive) ]"
+    fi
 fi
 
-if systemctl --user is-enabled --quiet mihomo.service 2>/dev/null; then
-    echo "● 开机自启:    [ 已启用 (Enabled) ]"
-else
-    echo "○ 开机自启:    [ 未启用 (Disabled) ]"
-fi
-
-# 2. 检查进程
-PID=$(pgrep -f "${WORKSPACE_DIR}/bin/mihomo" || true)
+# 2. 检查进程详细资源
+PID=$(pgrep -f "${BIN_FILE}" || true)
 if [ -n "${PID}" ]; then
     echo "● 进程 PID:    ${PID}"
-    # 内存与运行时间
     PS_INFO=$(ps -o %cpu,%mem,etime,args -p "${PID}" | tail -n 1 || true)
     echo "● 进程资源:    ${PS_INFO}"
 else

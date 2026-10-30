@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # 安装并配置 Mihomo 用户级系统服务 (无需 root 权限)
-# 自动根据当前目录和当前用户动态渲染服务单元
+# 自动根据当前目录和当前用户动态渲染服务单元 (自动检测 systemd 支持)
 # ==============================================================================
 set -euo pipefail
+
+has_systemd() {
+    [ -d /run/systemd/system ] && [ "$(ps -p 1 -o comm= 2>/dev/null)" = "systemd" ]
+}
+
+if ! has_systemd; then
+    echo "=== 系统服务检查 ==="
+    echo "[INFO] 检测到当前环境未运行 systemd (如 WSL / Docker / 容器 / SysVinit)。"
+    echo "[INFO] 本套件已自动切换为「独立后台守护进程模式」，可直接运行 ./scripts/start.sh 启动，无需配置 systemd。"
+    exit 0
+fi
 
 # 自动补全无头/SSH 环境下的用户级 systemd bus 环境变量
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
