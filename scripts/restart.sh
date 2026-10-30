@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# 重启 Mihomo 服务
+# 重启 Mihomo 服务 (支持 systemd 与非 systemd 双引擎自适应)
 # ==============================================================================
 set -euo pipefail
 
@@ -16,6 +16,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${WORKSPACE_DIR}/config/config.yaml"
 
+can_use_systemd_user() {
+    [ -d /run/systemd/system ] && systemctl --user list-units --type=service >/dev/null 2>&1
+}
+
 echo "正在检查配置文件语法..."
 if ! "${WORKSPACE_DIR}/bin/mihomo" -t -d "${WORKSPACE_DIR}/config" -f "${CONFIG_FILE}" >/dev/null; then
     echo "错误: 配置文件语法有误，放弃重启以防服务中断！" >&2
@@ -23,15 +27,22 @@ if ! "${WORKSPACE_DIR}/bin/mihomo" -t -d "${WORKSPACE_DIR}/config" -f "${CONFIG_
 fi
 echo "[OK] 配置文件校验通过"
 
-echo "正在重启 mihomo 服务..."
-systemctl --user restart mihomo.service
+if can_use_systemd_user; then
+    echo "正在重启 mihomo 用户级 systemd 服务..."
+    systemctl --user restart mihomo.service
 
-sleep 1
-if systemctl --user is-active --quiet mihomo.service; then
-    echo "[OK] 服务重启成功！"
-    "${SCRIPT_DIR}/status.sh"
+    sleep 1
+    if systemctl --user is-active --quiet mihomo.service; then
+        echo "[OK] 服务重启成功！"
+        "${SCRIPT_DIR}/status.sh"
+    else
+        echo "[FAIL] 服务重启失败，请检查日志:"
+        journalctl --user -u mihomo.service -n 20 --no-pager
+        exit 1
+    fi
 else
-    echo "[FAIL] 服务重启失败，请检查日志:"
-    journalctl --user -u mihomo.service -n 20 --no-pager
-    exit 1
+    echo "正在重启独立后台守护进程..."
+    "${SCRIPT_DIR}/stop.sh"
+    sleep 1
+    "${SCRIPT_DIR}/start.sh"
 fi

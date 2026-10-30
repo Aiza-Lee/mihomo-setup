@@ -23,9 +23,9 @@ PID_FILE="${WORKSPACE_DIR}/bin/mihomo.pid"
 LOG_DIR="${WORKSPACE_DIR}/logs"
 LOG_FILE="${LOG_DIR}/mihomo.log"
 
-# 检测系统是否以 systemd 为 PID 1
-has_systemd() {
-    [ -d /run/systemd/system ] && [ "$(ps -p 1 -o comm= 2>/dev/null)" = "systemd" ]
+# 检测用户级 systemd bus 是否真实可用
+can_use_systemd_user() {
+    [ -d /run/systemd/system ] && systemctl --user list-units --type=service >/dev/null 2>&1
 }
 
 # 0. 确保核心二进制存在
@@ -93,8 +93,8 @@ if ss -tlpn 2>/dev/null | grep -q ":${CONFIG_PORT} "; then
     fi
 fi
 
-# 4. 启动服务 (systemd / 独立进程自适应)
-if has_systemd; then
+# 4. 启动服务 (真实探测 systemd bus 可用性，不可用时无缝回退)
+if can_use_systemd_user; then
     # 确保用户服务已注册
     if [ ! -f "${USER_SERVICE_FILE}" ]; then
         echo "首次运行，正在自动安装用户服务..."
@@ -114,7 +114,7 @@ if has_systemd; then
         exit 1
     fi
 else
-    echo "检测到系统未运行 systemd (如 WSL / Docker / 容器环境)，已启用独立后台守护进程模式..."
+    echo "检测到用户级 systemd 不可用 (如 WSL / Docker / 无 D-Bus 环境)，已自动切换为「独立后台守护进程」模式..."
     mkdir -p "${LOG_DIR}"
 
     # 检查是否已在运行
@@ -132,7 +132,7 @@ else
 
     if kill -0 "${NEW_PID}" 2>/dev/null; then
         echo "[OK] Mihomo 独立后台守护进程启动成功！(PID: ${NEW_PID})"
-        echo "日志路径: ${LOG_FILE}"
+        echo "日志文件: ${LOG_FILE}"
         "${SCRIPT_DIR}/status.sh"
     else
         echo "[FAIL] 启动失败，请检查运行日志: ${LOG_FILE}"

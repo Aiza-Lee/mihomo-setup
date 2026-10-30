@@ -5,23 +5,23 @@
 # ==============================================================================
 set -euo pipefail
 
-has_systemd() {
-    [ -d /run/systemd/system ] && [ "$(ps -p 1 -o comm= 2>/dev/null)" = "systemd" ]
-}
-
-if ! has_systemd; then
-    echo "=== 系统服务检查 ==="
-    echo "[INFO] 检测到当前环境未运行 systemd (如 WSL / Docker / 容器 / SysVinit)。"
-    echo "[INFO] 本套件已自动切换为「独立后台守护进程模式」，可直接运行 ./scripts/start.sh 启动，无需配置 systemd。"
-    exit 0
-fi
-
 # 自动补全无头/SSH 环境下的用户级 systemd bus 环境变量
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
     export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 fi
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR}/bus" ]; then
     export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+fi
+
+can_use_systemd_user() {
+    [ -d /run/systemd/system ] && systemctl --user list-units --type=service >/dev/null 2>&1
+}
+
+if ! can_use_systemd_user; then
+    echo "=== 系统服务检查 ==="
+    echo "[INFO] 检测到当前环境用户级 systemd 不可用 (如 WSL / Docker / 容器 / 无 D-Bus 会话)。"
+    echo "[INFO] 本套件已自动启用「独立后台守护进程」模式，直接运行 ./scripts/start.sh 即可，无需配置 systemd。"
+    exit 0
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +38,7 @@ echo "=== 正在配置 Mihomo 用户级 systemd 服务 ==="
 echo "工作目录: ${WORKSPACE_DIR}"
 echo "当前用户: ${USER} (UID: $(id -u))"
 
-# 1. 尝试提前开启 Linger 驻留 (激活无头服务器用户级 systemd 实例与运行时目录)
+# 1. 尝试提前开启 Linger 驻留
 loginctl enable-linger "${USER}" 2>/dev/null || true
 
 # 确保用户服务目录存在
@@ -55,7 +55,7 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     fi
 fi
 
-# 3. 确保核心二进制存在 (若未解压则从本地内置架构包解压)
+# 3. 确保核心二进制存在
 if [ ! -x "${BIN_FILE}" ]; then
     ARCH="$(uname -m)"
     case "${ARCH}" in
@@ -88,19 +88,7 @@ sed "s|__WORKSPACE_DIR__|${WORKSPACE_DIR}|g" "${SERVICE_TEMPLATE}" > "${SERVICE_
 echo "[OK] 服务单元已动态生成并部署到: ${SERVICE_DEST}"
 
 # 5. 重载用户服务配置
-echo "正在通知 systemd 用户实例重载配置..."
-if ! systemctl --user daemon-reload; then
-    echo "" >&2
-    echo "======================================================================" >&2
-    echo "[!] 连接用户级 systemd bus 失败 (Failed to connect to bus)" >&2
-    echo "原因分析: 常见于通过 SSH / su 切换到无头机器时未正确加载 pam_systemd 会话。" >&2
-    echo "排查与解决办法:" >&2
-    echo "  1. 确认已开启驻留: sudo loginctl enable-linger ${USER}" >&2
-    echo "  2. 手动导出运行时环境变量: export XDG_RUNTIME_DIR=/run/user/\$(id -u)" >&2
-    echo "  3. 若以上均失败，可执行: sudo systemctl start user@\$(id -u).service" >&2
-    echo "======================================================================" >&2
-    exit 1
-fi
+systemctl --user daemon-reload
 echo "[OK] systemctl --user daemon-reload 执行成功"
 
 # 6. 启用开机自启
