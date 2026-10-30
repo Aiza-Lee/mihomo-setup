@@ -1,0 +1,18 @@
+[Unit]
+Description=Mihomo (Clash Meta) Proxy Service (System Level)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+ExecStart=__WORKSPACE_DIR__/bin/mihomo -d __WORKSPACE_DIR__/config -f __WORKSPACE_DIR__/config/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

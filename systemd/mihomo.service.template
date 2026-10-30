@@ -1,0 +1,16 @@
+[Unit]
+Description=Mihomo (Clash Meta) Proxy Service (User Level)
+After=network.target default.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=__WORKSPACE_DIR__/bin/mihomo -d __WORKSPACE_DIR__/config -f __WORKSPACE_DIR__/config/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
